@@ -1,11 +1,12 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
+import datetime
 
 from shap_explainer import shap_explain_baseline
 from geocode import get_lat_lon_from_place
 from india_places import india_places
-from transformer_model import build_transformer_model
+from transformer_model import train_and_predict_transformer   # ⭐ UPDATED
 from map_view import create_prediction_map
 from streamlit_folium import st_folium
 
@@ -15,7 +16,7 @@ from data_preprocess import prepare_data_for_ml
 from weather_fetch import fetch_realtime_solar_data
 
 # =====================================================
-# 🔒 CACHED MODEL FUNCTIONS (PROFESSIONAL FIX)
+# 🔒 CACHED MODEL FUNCTIONS
 # =====================================================
 
 @st.cache_data(show_spinner=False)
@@ -26,20 +27,13 @@ def run_baseline_cached(ml_data):
 def run_lstm_cached(ml_data):
     return train_and_predict_lstm(ml_data)
 
-@st.cache_data(show_spinner=False)
-def run_transformer_cached(X_trans):
-    transformer = build_transformer_model(
-        input_shape=(X_trans.shape[1], X_trans.shape[2])
-    )
-    return transformer.predict(X_trans)[0][0]
-
 # -----------------------------
 # Page Config
 # -----------------------------
 st.set_page_config(page_title="India Solar AI", layout="centered")
 
 # -----------------------------
-# SESSION STATE (VERY IMPORTANT)
+# SESSION STATE
 # -----------------------------
 if "show_results" not in st.session_state:
     st.session_state.show_results = False
@@ -117,13 +111,13 @@ ml_data = prepare_data_for_ml(df)
 st.dataframe(ml_data.head())
 
 # -----------------------------
-# 🚀 PREDICT BUTTON (FIXED)
+# 🚀 PREDICT BUTTON
 # -----------------------------
 if st.button("🚀 Predict Solar Energy"):
     st.session_state.show_results = True
 
 # -----------------------------
-# RUN MODELS (ONLY IF BUTTON CLICKED)
+# RUN MODELS
 # -----------------------------
 if st.session_state.show_results:
 
@@ -131,19 +125,26 @@ if st.session_state.show_results:
     st.subheader("🤖 Baseline ML Prediction")
     with st.spinner("🔮 Running Baseline ML model..."):
         ml_prediction = run_baseline_cached(ml_data)
-    st.metric("Baseline ML (W/m²)", f"{ml_prediction:.2f}")
 
     # -------- LSTM --------
     st.subheader("🧠 LSTM Prediction")
     with st.spinner("🧠 Running LSTM model..."):
         lstm_prediction = run_lstm_cached(ml_data)
-    st.metric("LSTM (W/m²)", f"{lstm_prediction:.2f}")
 
     # -------- Transformer --------
     st.subheader("🤖 Transformer Prediction")
-    X_trans = np.expand_dims(ml_data.values, axis=0)
     with st.spinner("🤖 Running Transformer model..."):
-        transformer_pred = run_transformer_cached(X_trans)
+        transformer_pred = train_and_predict_transformer(ml_data)
+
+    # =====================================================
+    # 🚨 SOLAR CANNOT BE NEGATIVE
+    # =====================================================
+    ml_prediction = max(0, ml_prediction)
+    lstm_prediction = max(0, lstm_prediction)
+    transformer_pred = max(0, transformer_pred)
+
+    st.metric("Baseline ML (W/m²)", f"{ml_prediction:.2f}")
+    st.metric("LSTM (W/m²)", f"{lstm_prediction:.2f}")
     st.metric("Transformer (W/m²)", f"{transformer_pred:.2f}")
 
     # -------- Map --------
@@ -158,22 +159,31 @@ if st.session_state.show_results:
     # -------- Model Comparison --------
     st.subheader("📊 Model Comparison")
     st.table({
-        "Model": ["Baseline ML", "LSTM"],
+        "Model": ["Baseline ML", "LSTM", "Transformer"],
         "Prediction (W/m²)": [
             round(ml_prediction, 2),
-            round(lstm_prediction, 2)
+            round(lstm_prediction, 2),
+            round(transformer_pred, 2)
         ]
     })
 
-    # -------- Best Model --------
-    actual_value = df["solar_irradiance"].iloc[-1]
+    # =====================================================
+    # 🧠 SMART MODEL SELECTION
+    # =====================================================
+    predictions = {
+        "Baseline ML": ml_prediction,
+        "LSTM": lstm_prediction,
+        "Transformer": transformer_pred
+    }
 
-    if abs(actual_value - lstm_prediction) < abs(actual_value - ml_prediction):
-        best_model = "LSTM"
-        final_pred = lstm_prediction
-    else:
-        best_model = "Baseline ML"
-        final_pred = ml_prediction
+    valid_preds = {k: v for k, v in predictions.items() if v >= 0}
+    best_model = max(valid_preds, key=valid_preds.get)
+    final_pred = valid_preds[best_model]
+
+    # 🌙 NIGHT RULE
+    current_hour = datetime.datetime.now().hour
+    if current_hour < 6 or current_hour > 18:
+        final_pred = 0
 
     st.subheader("🏆 Best Model Selected")
     st.success(best_model)

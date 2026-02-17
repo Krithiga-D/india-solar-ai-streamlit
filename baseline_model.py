@@ -1,22 +1,34 @@
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
 import numpy as np
 
 def train_and_predict_baseline(ml_data):
     """
-    Trains a simple baseline ML model (Linear Regression)
-    and predicts the next solar irradiance value.
+    Flexible Baseline ML Model
+    Works even if cloud_cover column is missing.
     """
 
-    # Use index as time step
-    X = np.arange(len(ml_data)).reshape(-1, 1)
+    # ⭐ Select only available columns safely
+    feature_cols = ["solar_irradiance", "temperature", "hour"]
+
+    if "cloud_cover" in ml_data.columns:
+        feature_cols.append("cloud_cover")
+
+    X = ml_data[feature_cols].values
     y = ml_data["solar_irradiance"].values
+
+    # Scale features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
     # Train model
     model = LinearRegression()
-    model.fit(X, y)
+    model.fit(X_scaled, y)
 
-    # Predict next time step
-    next_step = np.array([[len(ml_data)]])
-    prediction = model.predict(next_step)[0]
+    # Predict next step
+    last_row = X[-1].reshape(1, -1)
+    last_row_scaled = scaler.transform(last_row)
+
+    prediction = model.predict(last_row_scaled)[0]
 
     return prediction
