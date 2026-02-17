@@ -6,7 +6,7 @@ import datetime
 from shap_explainer import shap_explain_baseline
 from geocode import get_lat_lon_from_place
 from india_places import india_places
-from transformer_model import train_and_predict_transformer   # ⭐ UPDATED
+from transformer_model import build_transformer_model
 from map_view import create_prediction_map
 from streamlit_folium import st_folium
 
@@ -14,6 +14,7 @@ from lstm_model import train_and_predict_lstm
 from baseline_model import train_and_predict_baseline
 from data_preprocess import prepare_data_for_ml
 from weather_fetch import fetch_realtime_solar_data
+
 
 # =====================================================
 # 🔒 CACHED MODEL FUNCTIONS
@@ -26,6 +27,14 @@ def run_baseline_cached(ml_data):
 @st.cache_data(show_spinner=False)
 def run_lstm_cached(ml_data):
     return train_and_predict_lstm(ml_data)
+
+@st.cache_data(show_spinner=False)
+def run_transformer_cached(X_trans):
+    transformer = build_transformer_model(
+        input_shape=(X_trans.shape[1], X_trans.shape[2])
+    )
+    return transformer.predict(X_trans)[0][0]
+
 
 # -----------------------------
 # Page Config
@@ -133,12 +142,13 @@ if st.session_state.show_results:
 
     # -------- Transformer --------
     st.subheader("🤖 Transformer Prediction")
-    with st.spinner("🤖 Running Transformer model..."):
-        transformer_pred = train_and_predict_transformer(ml_data)
 
-    # =====================================================
-    # 🚨 SOLAR CANNOT BE NEGATIVE
-    # =====================================================
+    X_trans = np.expand_dims(ml_data.values, axis=0)
+
+    with st.spinner("🤖 Running Transformer model..."):
+        transformer_pred = run_transformer_cached(X_trans)
+
+    # 🚨 Solar cannot be negative
     ml_prediction = max(0, ml_prediction)
     lstm_prediction = max(0, lstm_prediction)
     transformer_pred = max(0, transformer_pred)
@@ -167,20 +177,17 @@ if st.session_state.show_results:
         ]
     })
 
-    # =====================================================
-    # 🧠 SMART MODEL SELECTION
-    # =====================================================
+    # -------- Smart Model Selection --------
     predictions = {
         "Baseline ML": ml_prediction,
         "LSTM": lstm_prediction,
         "Transformer": transformer_pred
     }
 
-    valid_preds = {k: v for k, v in predictions.items() if v >= 0}
-    best_model = max(valid_preds, key=valid_preds.get)
-    final_pred = valid_preds[best_model]
+    best_model = max(predictions, key=predictions.get)
+    final_pred = predictions[best_model]
 
-    # 🌙 NIGHT RULE
+    # 🌙 Night rule
     current_hour = datetime.datetime.now().hour
     if current_hour < 6 or current_hour > 18:
         final_pred = 0
@@ -210,6 +217,5 @@ if st.session_state.show_results:
         "Importance": shap_importance
     })
 
-    # -------- Reset Button --------
     if st.button("🔄 Reset Prediction"):
         st.session_state.show_results = False
