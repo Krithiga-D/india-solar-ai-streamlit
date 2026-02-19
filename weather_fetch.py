@@ -5,9 +5,10 @@ def fetch_realtime_solar_data(lat, lon):
     """
     Fetch real-time solar and weather data from Open-Meteo API
     Added: cloud_cover feature for better AI prediction
+    Streamlit Cloud Safe Version ✅
     """
 
-    # 🌥️ Added cloudcover in hourly request
+    # 🌥️ Open-Meteo API URL
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
@@ -15,15 +16,28 @@ def fetch_realtime_solar_data(lat, lon):
         "&forecast_days=1"
     )
 
-    response = requests.get(url)
-    data = response.json()
+    try:
+        # ✅ SAFE REQUEST (Important for Streamlit Cloud)
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
 
-    # Create dataframe
-    df = pd.DataFrame({
-        "time": data["hourly"]["time"],
-        "solar_irradiance": data["hourly"]["shortwave_radiation"],
-        "temperature": data["hourly"]["temperature_2m"],
-        "cloud_cover": data["hourly"]["cloudcover"]   # ⭐ NEW FEATURE
-    })
+        data = response.json()
 
-    return df
+        # ✅ Safety check (avoid crash if API fails)
+        if "hourly" not in data:
+            print("API Error: No hourly data found")
+            return pd.DataFrame()
+
+        # Create dataframe
+        df = pd.DataFrame({
+            "time": data["hourly"]["time"],
+            "solar_irradiance": data["hourly"]["shortwave_radiation"],
+            "temperature": data["hourly"]["temperature_2m"],
+            "cloud_cover": data["hourly"]["cloudcover"]
+        })
+
+        return df
+
+    except requests.exceptions.RequestException as e:
+        print("API Request Failed:", e)
+        return pd.DataFrame()
